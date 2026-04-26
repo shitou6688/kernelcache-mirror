@@ -1,0 +1,100 @@
+name: Add Special Version Aliases
+
+on:
+  workflow_dispatch:
+
+jobs:
+  merge-index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Generate special version aliases
+        run: python3 scripts/fetch_special.py
+
+      - name: Merge and upload iPhone index
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Download existing index
+          gh release download iphone-kernelcache --pattern "index_iphone.json" --output index_iphone.json --clobber
+          echo "Downloaded existing index_iphone.json"
+          
+          # Count existing
+          EXISTING=$(python3 -c "import json; print(len(json.load(open('index_iphone.json'))))")
+          echo "Existing iPhone entries: $EXISTING"
+          
+          # Merge new entries
+          python3 -c "
+          import json
+          with open('index_iphone.json') as f:
+              existing = json.load(f)
+          try:
+              with open('new_entries_iphone.json') as f:
+                  new_entries = json.load(f)
+          except FileNotFoundError:
+              new_entries = []
+          
+          existing_models = set((e['model'], e['version']) for e in existing)
+          added = 0
+          for e in new_entries:
+              key = (e['model'], e['version'])
+              if key not in existing_models:
+                  existing.append(e)
+                  existing_models.add(key)
+                  added += 1
+          
+          with open('index_iphone.json', 'w') as f:
+              json.dump(existing, f, ensure_ascii=False, indent=2)
+          print('Added %d new iPhone entries (total: %d)' % (added, len(existing)))
+          "
+          
+          # Re-upload
+          gh release upload iphone-kernelcache index_iphone.json --clobber
+          echo "Uploaded updated index_iphone.json"
+
+      - name: Merge and upload iPad index
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Download existing index
+          gh release download ipad-kernelcache --pattern "index_ipad.json" --output index_ipad.json --clobber
+          echo "Downloaded existing index_ipad.json"
+          
+          # Count existing
+          EXISTING=$(python3 -c "import json; print(len(json.load(open('index_ipad.json'))))")
+          echo "Existing iPad entries: $EXISTING"
+          
+          # Merge new entries
+          python3 -c "
+          import json
+          with open('index_ipad.json') as f:
+              existing = json.load(f)
+          try:
+              with open('new_entries_ipad.json') as f:
+                  new_entries = json.load(f)
+          except FileNotFoundError:
+              new_entries = []
+          
+          existing_models = set((e['model'], e['version']) for e in existing)
+          added = 0
+          for e in new_entries:
+              key = (e['model'], e['version'])
+              if key not in existing_models:
+                  existing.append(e)
+                  existing_models.add(key)
+                  added += 1
+          
+          with open('index_ipad.json', 'w') as f:
+              json.dump(existing, f, ensure_ascii=False, indent=2)
+          print('Added %d new iPad entries (total: %d)' % (added, len(existing)))
+          "
+          
+          # Re-upload
+          gh release upload ipad-kernelcache index_ipad.json --clobber
+          echo "Uploaded updated index_ipad.json"

@@ -1,0 +1,111 @@
+name: Download Kernelcaches
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete all existing releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Cleaning up all existing releases..."
+          gh release list -L 9999 --json tagName | jq -r '.[].tagName' | while read tag; do
+            echo "  Deleting $tag..."
+            gh release delete "$tag" --yes
+          done
+          echo "All old releases deleted!"
+
+  download-iphone:
+    needs: cleanup
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Download iPhone kernelcaches
+        run: python3 scripts/download_kernelcaches.py --filter iphone
+
+      - name: Upload to iPhone Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILE_COUNT=$(find output -name "kernelcache" -type f | wc -l)
+          echo "Uploading $FILE_COUNT iPhone kernelcache files..."
+          
+          gh release create "iphone-kernelcache" \
+            --title "iPhone Kernelcaches" \
+            --notes "iPhone kernelcache files (iOS 15.7.2-16.6.1). Total: $FILE_COUNT files."
+          
+          cd output
+          find . -name "kernelcache" -type f | while read f; do
+            MODEL=$(echo "$f" | cut -d'/' -f2)
+            VERSION=$(echo "$f" | cut -d'/' -f3)
+            RENAME="${MODEL}_${VERSION}.kernelcache"
+            cp "$f" "/tmp/$RENAME"
+            SIZE=$(du -h "/tmp/$RENAME" | cut -f1)
+            echo "  Uploading $RENAME ($SIZE)..."
+            gh release upload "iphone-kernelcache" "/tmp/$RENAME" --clobber
+            rm "/tmp/$RENAME"
+          done
+          
+          if [ -f index.json ]; then
+            cp index.json /tmp/index_iphone.json
+            echo "  Uploading index_iphone.json..."
+            gh release upload "iphone-kernelcache" "/tmp/index_iphone.json" --clobber
+          fi
+          
+          echo "iPhone uploads complete!"
+
+  download-ipad:
+    needs: cleanup
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Download iPad kernelcaches
+        run: python3 scripts/download_kernelcaches.py --filter ipad
+
+      - name: Upload to iPad Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILE_COUNT=$(find output -name "kernelcache" -type f | wc -l)
+          echo "Uploading $FILE_COUNT iPad kernelcache files..."
+          
+          gh release create "ipad-kernelcache" \
+            --title "iPad Kernelcaches" \
+            --notes "iPad kernelcache files (iOS 15.7.2-16.6.1). Total: $FILE_COUNT files."
+          
+          cd output
+          find . -name "kernelcache" -type f | while read f; do
+            MODEL=$(echo "$f" | cut -d'/' -f2)
+            VERSION=$(echo "$f" | cut -d'/' -f3)
+            RENAME="${MODEL}_${VERSION}.kernelcache"
+            cp "$f" "/tmp/$RENAME"
+            SIZE=$(du -h "/tmp/$RENAME" | cut -f1)
+            echo "  Uploading $RENAME ($SIZE)..."
+            gh release upload "ipad-kernelcache" "/tmp/$RENAME" --clobber
+            rm "/tmp/$RENAME"
+          done
+          
+          if [ -f index.json ]; then
+            cp index.json /tmp/index_ipad.json
+            echo "  Uploading index_ipad.json..."
+            gh release upload "ipad-kernelcache" "/tmp/index_ipad.json" --clobber
+          fi
+          
+          echo "iPad uploads complete!"

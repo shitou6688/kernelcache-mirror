@@ -263,7 +263,8 @@ def main():
 
     ios_entries = appledb.get("ios", [])
     if FILTER == "ipad":
-        ios_entries = [e for e in ios_entries if e.get("osStr") == "iPadOS"]
+        # iPad firmwares can be tagged as either "iPadOS" or "iOS" in appledb
+        ios_entries = [e for e in ios_entries if e.get("osStr") in ("iPadOS", "iOS")]
     elif FILTER == "iphone":
         ios_entries = [e for e in ios_entries if e.get("osStr") == "iOS"]
 
@@ -271,16 +272,12 @@ def main():
     if MIN_VERSION or MAX_VERSION:
         ios_entries = [e for e in ios_entries if version_in_range(e.get("version", ""), MIN_VERSION, MAX_VERSION)]
 
-    # Deduplicate by (version, build)
+    # Deduplicate by URL (same IPSW shouldn't be processed twice)
     seen = set()
     firmwares = []
     for entry in ios_entries:
         v = entry.get("version", "")
         b = entry.get("build", "")
-        key = (v, b)
-        if key in seen:
-            continue
-        seen.add(key)
 
         # Find IPSW sources
         sources = entry.get("sources", [])
@@ -289,21 +286,34 @@ def main():
             continue
 
         # Pick the best source (no auth, active, with deviceMap)
-        best = None
         for s in ipsw_sources:
             links = s.get("links", [])
             active_links = [l for l in links if not l.get("auth") and l.get("active")]
-            if active_links and s.get("deviceMap"):
-                best = {
-                    "url": active_links[0]["url"],
-                    "devices": s["deviceMap"],
-                    "version": v,
-                    "build": b,
-                }
-                break  # Use the first valid one
+            if not active_links or not s.get("deviceMap"):
+                continue
 
-        if best:
-            firmwares.append(best)
+            url = active_links[0]["url"]
+            if url in seen:
+                continue
+            seen.add(url)
+
+            # Filter devices by type
+            devices = s["deviceMap"]
+            if FILTER == "ipad":
+                devices = [d for d in devices if "iPad" in d]
+                if not devices:
+                    continue
+            elif FILTER == "iphone":
+                devices = [d for d in devices if "iPhone" in d]
+                if not devices:
+                    continue
+
+            firmwares.append({
+                "url": url,
+                "devices": devices,
+                "version": v,
+                "build": b,
+            })
 
     # Sort by version
     firmwares.sort(key=lambda x: parse_version(x["version"]))

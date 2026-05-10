@@ -16,16 +16,13 @@ jobs:
           MS_USERNAME: ${{ secrets.MS_USERNAME }}
           MS_PASSWORD: ${{ secrets.MS_PASSWORD }}
         run: |
-          # Clone ModelScope repo (skip LFS, we only add new files)
+          # Clone ModelScope repo (skip LFS download)
           GIT_LFS_SKIP_SMUDGE=1 git clone "https://${MS_USERNAME}:${MS_PASSWORD}@www.modelscope.cn/datasets/qwer1234561476/jumo.git" ms-repo
           mkdir -p ms-repo/neihewenjian
           
-          # Download iPhone kernels from our release
-          echo "Downloading iPhone kernels..."
+          # Download iPhone + iPad kernels from our release
+          echo "Downloading kernels from releases..."
           gh release download iphone-kernelcache -R shitou6688/kernelcache-mirror -D ms-repo/neihewenjian --pattern "*.kernelcache" --clobber
-          
-          # Download iPad kernels  
-          echo "Downloading iPad kernels..."
           gh release download ipad-kernelcache -R shitou6688/kernelcache-mirror -D ms-repo/neihewenjian --pattern "*.kernelcache" --clobber
           
           # Push to ModelScope

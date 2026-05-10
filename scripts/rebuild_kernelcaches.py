@@ -614,7 +614,12 @@ def main():
                 continue
             filepath.write_bytes(kernel_data)
             sz = len(kernel_data)
-            index.append({"model": dev_id, "version": version, "size": sz})
+            # Build download URL
+            if dev_id.startswith("iPad"):
+                url = f"https://kernel0.jumo8.top/ipad/{filename}"
+            else:
+                url = f"https://kernel0.jumo8.top/{filename}"
+            index.append({"model": dev_id, "version": version, "size": sz, "url": url, "build": build})
             log(f"  SAVED: {filename} ({sz // 1024 // 1024}MB)")
             success += 1
 

@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import urllib.request
+import urllib.parse
 from pathlib import Path
 
 KAMI_IPAD_INDEX = "https://github.com/BuLu0208/kernelcache-mirror/releases/download/ipad-kernelcache/index_ipad.json"
@@ -88,7 +89,7 @@ def process_release(index_url, release_tag, filter_type):
             skip += 1
             continue
 
-        url = f"{KAMI_BASE}{release_tag}/{filename}"
+        url = f"{KAMI_BASE}{release_tag}/{urllib.parse.quote(filename)}"
         log(f"  [{i+1}/{total}] {filename} ({size // 1024 // 1024}MB)...")
 
         downloaded = download_file(url, str(filepath))

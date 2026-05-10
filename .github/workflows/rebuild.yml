@@ -9,6 +9,7 @@ on:
         default: 'ipad'
         type: choice
         options:
+          - cleanup-only
           - ipad
           - iphone
           - all
@@ -19,11 +20,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Delete old releases
+      - name: Delete all releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Cleaning up old releases..."
+          echo "Cleaning up all releases..."
           gh release list -L 9999 --json tagName | jq -r '.[].tagName' | while read tag; do
             echo "  Deleting $tag..."
             gh release delete "$tag" --yes --cleanup-tag

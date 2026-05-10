@@ -29,7 +29,7 @@ jobs:
             --min-version "15.7" \
             --max-version "16.6.1"
 
-      - name: Upload to release (overwrite only)
+      - name: Upload to release (--clobber overwrites matching files)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -37,12 +37,29 @@ jobs:
           DIR="output"
           TAG="${FILTER}-kernelcache"
 
-          FILE_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
-          echo "New/changed files: $FILE_COUNT"
+          # Get current asset count
+          CURRENT_COUNT=$(gh release view "$TAG" --json assets -q '.assets | length' 2>/dev/null || echo 0)
+          echo "Current assets in release: $CURRENT_COUNT"
 
-          if [ "$FILE_COUNT" -eq 0 ]; then
-            echo "Nothing changed, all up to date!"
-            exit 0
+          NEW_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
+          echo "Files to upload: $NEW_COUNT"
+
+          # Check 1000 limit
+          if [ $((CURRENT_COUNT + NEW_COUNT)) -gt 1000 ]; then
+            # Count how many are truly new (not already in release)
+            EXISTING=$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null)
+            TRULY_NEW=0
+            for f in $(find "$DIR" -name "*.kernelcache" -type f -printf '%f\n' | sort); do
+              if ! echo "$EXISTING" | grep -qFx "$f"; then
+                TRULY_NEW=$((TRULY_NEW + 1))
+              fi
+            done
+            echo "Truly new files: $TRULY_NEW"
+            if [ $((CURRENT_COUNT + TRULY_NEW)) -gt 1000 ]; then
+              echo "ERROR: Would exceed 1000 asset limit ($CURRENT_COUNT + $TRULY_NEW = $((CURRENT_COUNT + TRULY_NEW)))"
+              echo "Need to split releases. Stopping."
+              exit 1
+            fi
           fi
 
           # Ensure release exists
@@ -51,7 +68,7 @@ jobs:
             gh release create "$TAG" --title "${FILTER^} Kernelcaches" --notes "Rebuilt kernelcache files for TrollInstallerX."
           fi
 
-          # Upload only new/changed files (--clobber overwrites existing)
+          # Upload all with --clobber (overwrites existing, adds new)
           cd "$DIR"
           find . -name "*.kernelcache" -type f | sort | while read f; do
             echo "  Uploading $(basename "$f")..."
@@ -65,4 +82,4 @@ jobs:
             gh release upload "$TAG" "index_${FILTER}.json" --clobber
           fi
 
-          echo "Done! Files overwritten: $FILE_COUNT"
+          echo "Done!"

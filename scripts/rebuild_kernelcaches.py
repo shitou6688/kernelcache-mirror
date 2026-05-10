@@ -601,7 +601,7 @@ def main():
                 fail += 1
                 continue
             
-            filename = f"{dev_id.replace(',', '.')}.{version}.kernelcache"
+            filename = f"{dev_id.replace(',', '.')}_{version}.kernelcache"
             filepath = out_dir / filename
             if filepath.exists() and filepath.stat().st_size > 100 * 1024:
                 skip += 1

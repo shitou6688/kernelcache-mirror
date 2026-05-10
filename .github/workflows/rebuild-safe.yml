@@ -1,0 +1,68 @@
+name: Rebuild Kernelcaches (Safe - No Cleanup)
+
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: 'Device type'
+        required: true
+        default: 'ipad'
+        type: choice
+        options:
+          - ipad
+          - iphone
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run extraction script
+        run: |
+          echo "Extracting ${{ github.event.inputs.filter }} kernelcaches from Apple IPSW..."
+          python3 scripts/rebuild_kernelcaches.py \
+            --filter "${{ github.event.inputs.filter }}" \
+            --min-version "15.7" \
+            --max-version "16.6.1"
+
+      - name: Upload to release (overwrite only)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILTER="${{ github.event.inputs.filter }}"
+          DIR="output"
+          TAG="${FILTER}-kernelcache"
+
+          FILE_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
+          echo "New/changed files: $FILE_COUNT"
+
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "Nothing changed, all up to date!"
+            exit 0
+          fi
+
+          # Ensure release exists
+          if ! gh release view "$TAG" &>/dev/null; then
+            echo "Creating release: $TAG"
+            gh release create "$TAG" --title "${FILTER^} Kernelcaches" --notes "Rebuilt kernelcache files for TrollInstallerX."
+          fi
+
+          # Upload only new/changed files (--clobber overwrites existing)
+          cd "$DIR"
+          find . -name "*.kernelcache" -type f | sort | while read f; do
+            echo "  Uploading $(basename "$f")..."
+            gh release upload "$TAG" "$f" --clobber
+          done
+
+          # Upload index
+          if [ -f index.json ]; then
+            cp index.json "index_${FILTER}.json"
+            echo "  Uploading index_${FILTER}.json..."
+            gh release upload "$TAG" "index_${FILTER}.json" --clobber
+          fi
+
+          echo "Done! Files overwritten: $FILE_COUNT"

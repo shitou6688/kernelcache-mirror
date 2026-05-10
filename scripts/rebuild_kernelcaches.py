@@ -13,6 +13,8 @@ Environment:
 
 import json
 import os
+import plistlib
+import re
 import struct
 import sys
 import time
@@ -187,45 +189,265 @@ def version_in_range(version, min_v, max_v):
 
 
 # ---------------------------------------------------------------------------
-# Device matching
+# Board config → Device identifier lookup
 # ---------------------------------------------------------------------------
 
-def match_kernel_to_devices(kernel_filename, device_identifiers):
-    """
-    Match a kernelcache filename to the correct device identifiers.
-    kernel_filename: e.g. 'kernelcache.release.ipad6b'
-    device_identifiers: e.g. ['iPad6,3', 'iPad6,4', 'iPad6,7', 'iPad6,8']
-    Returns list of matching device identifiers.
-    """
-    # Extract platform name: kernelcache.release.<platform>
-    name = kernel_filename.split("/")[-1]
-    # Remove known prefixes
-    for prefix in ["kernelcache.release.", "kernelcache.development.", "kernelcache.debug."]:
-        if name.startswith(prefix):
-            name = name[len(prefix):]
-            break
-    else:
-        return []
+# Maps Apple internal board configs (e.g. J317AP) to device identifiers (iPad8,5)
+# Source: iPhone Wiki / appledb cross-reference
+BOARD_TO_DEVICE = {
+    # ── iPad ──
+    # iPad8,x
+    "J71TAP": "iPad8,1", "J71T": "iPad8,1",
+    "J72TAP": "iPad8,2", "J72T": "iPad8,2",
+    "J71AAP": "iPad8,3",
+    "J72AAP": "iPad8,4",
+    "J317AP": "iPad8,5", "J317XAP": "iPad8,5", "J317": "iPad8,5",
+    "J318AP": "iPad8,6", "J318XAP": "iPad8,6", "J318": "iPad8,6",
+    "J320AP": "iPad8,7", "J320XAP": "iPad8,7", "J320": "iPad8,7",
+    "J321AP": "iPad8,8", "J321XAP": "iPad8,8", "J321": "iPad8,8",
+    "J207AP": "iPad8,9",
+    "J208AP": "iPad8,9",
+    "J417AP": "iPad8,10", "J417": "iPad8,10",
+    "J418AP": "iPad8,10", "J418": "iPad8,10",
+    "J420AP": "iPad8,11", "J420": "iPad8,11",
+    "J421AP": "iPad8,12", "J421": "iPad8,12",
+    # iPad11,x
+    "J317X": "iPad11,1",  # need verify
+    "J318X": "iPad11,2",
+    "J320X": "iPad11,3",
+    "J321X": "iPad11,4",
+    "J322AP": "iPad11,6", "J322": "iPad11,6",
+    "J323AP": "iPad11,7", "J323": "iPad11,7",
+    # iPad12,x
+    "J407AP": "iPad12,1", "J407": "iPad12,1",
+    "J408AP": "iPad12,2", "J408": "iPad12,2",
+    # iPad13,x
+    "J307": "iPad13,1",
+    "J308": "iPad13,2",
+    "J307AP": "iPad13,1",
+    "J308AP": "iPad13,2",
+    "J517AP": "iPad13,4", "J517": "iPad13,4",
+    "J518AP": "iPad13,5", "J518": "iPad13,5",
+    "J522AP": "iPad13,6", "J522": "iPad13,6",
+    "J523AP": "iPad13,7", "J523": "iPad13,7",
+    "J527AP": "iPad13,8", "J527": "iPad13,8",
+    "J528AP": "iPad13,9", "J528": "iPad13,9",
+    "J537AP": "iPad13,10", "J537": "iPad13,10",
+    "J538AP": "iPad13,11", "J538": "iPad13,11",
+    "J617AP": "iPad13,16", "J617": "iPad13,16",
+    "J618AP": "iPad13,17", "J618": "iPad13,17",
+    "J620AP": "iPad13,18", "J620": "iPad13,18",
+    "J621AP": "iPad13,19", "J621": "iPad13,19",
+    # iPad14,x
+    "J617": "iPad14,1",
+    "J618": "iPad14,2",
+    "J620": "iPad14,3",
+    "J621": "iPad14,4",
+    "J720AP": "iPad14,5", "J720": "iPad14,5",
+    "J721AP": "iPad14,6", "J721": "iPad14,6",
+    # iPad6,x (need BoardConfig suffix removal)
+    "J71AP": "iPad6,11", "J71": "iPad6,11",
+    "J72AP": "iPad6,12", "J72": "iPad6,12",
+    "J68AP": "iPad6,3",
+    "J69AP": "iPad6,4",
+    "J120AP": "iPad6,7", "J120": "iPad6,7",
+    "J121AP": "iPad6,8", "J121": "iPad6,8",
+    # iPad7,x
+    "J171AP": "iPad7,1",
+    "J172AP": "iPad7,2",
+    "J173AP": "iPad7,3",
+    "J174AP": "iPad7,4",
+    "J210AP": "iPad7,5", "J210": "iPad7,5",
+    "J211AP": "iPad7,6", "J211": "iPad7,6",
+    "J171": "iPad7,11",
+    "J172": "iPad7,12",
 
-    # Extract platform number (e.g., 'ipad6b' -> '6', 'ipad14p' -> '14')
-    import re
-    m = re.match(r"ipad(\d+)", name)
-    if not m:
-        return []
-    platform_num = int(m.group(1))
+    # ── iPhone ──
+    "D101AP": "iPhone10,1", "D10": "iPhone10,1",
+    "D111AP": "iPhone10,2", "D11": "iPhone10,2",
+    "D201AP": "iPhone10,3", "D20": "iPhone10,3",
+    "D211AP": "iPhone10,4",
+    "D221AP": "iPhone10,5",
+    "D22AP": "iPhone10,6",
+    "N841AP": "iPhone11,8", "N84": "iPhone11,8",
+    "N104AP": "iPhone11,2", "N104": "iPhone11,2",
+    "D321AP": "iPhone12,1", "D32": "iPhone12,1",
+    "D331AP": "iPhone12,3", "D33": "iPhone12,3",
+    "D421AP": "iPhone12,5", "D42": "iPhone12,5",
+    "D431AP": "iPhone12,8", "D43": "iPhone12,8",
+    "D52GAP": "iPhone13,1", "D52": "iPhone13,1",
+    "D53GAP": "iPhone13,2", "D53": "iPhone13,2",
+    "D63AP": "iPhone13,3", "D63": "iPhone13,3",
+    "D64AP": "iPhone13,4", "D64": "iPhone13,4",
+    "D27AP": "iPhone14,2", "D27": "iPhone14,2",
+    "D28AP": "iPhone14,3", "D28": "iPhone14,3",
+    "D73AP": "iPhone14,4", "D73": "iPhone14,4",
+    "D74AP": "iPhone14,5", "D74": "iPhone14,5",
+    "D16AP": "iPhone14,6", "D16": "iPhone14,6",
+    "D17AP": "iPhone14,7", "D17": "iPhone14,7",
+    "D37AP": "iPhone14,8", "D37": "iPhone14,8",
+    "D47AP": "iPhone15,2", "D47": "iPhone15,2",
+    "D48AP": "iPhone15,3", "D48": "iPhone15,3",
+    "D83AP": "iPhone15,4", "D83": "iPhone15,4",
+    "D84AP": "iPhone15,5", "D84": "iPhone15,5",
+}
 
-    # For devices like iPad14,1 - the model number before comma
-    matched = []
-    for dev_id in device_identifiers:
-        parts = dev_id.replace("iPad", "").split(",")
-        try:
-            dev_num = int(parts[0])
-        except (ValueError, IndexError):
+def _clean_board_id(board):
+    """Normalize board identifier: remove 'AP' suffix, uppercase."""
+    return board.upper().replace("AP", "")
+
+def board_to_device(board_id):
+    """Convert board config (e.g. J317AP) to device identifier (e.g. iPad8,5)."""
+    board = board_id.upper()
+    # Try exact match first
+    if board in BOARD_TO_DEVICE:
+        return BOARD_TO_DEVICE[board]
+    # Try without AP suffix
+    clean = _clean_board_id(board)
+    if clean in BOARD_TO_DEVICE:
+        return BOARD_TO_DEVICE[clean]
+    # Try with AP suffix
+    if not board.endswith("AP"):
+        if board + "AP" in BOARD_TO_DEVICE:
+            return BOARD_TO_DEVICE[board + "AP"]
+    return None
+
+
+# ---------------------------------------------------------------------------
+# BuildManifest-based kernel matching (Apple's official mapping)
+# ---------------------------------------------------------------------------
+
+def parse_buildmanifest_from_ipsw(url, file_size):
+    """
+    Parse BuildManifest.plist from a remote IPSW ZIP.
+    Returns: {kernel_filename: [board_config_1, board_config_2, ...]}
+    Uses on-demand Range requests via ZipRangeFile (only reads ~200KB total).
+    """
+    try:
+        zf = ZipRangeFile(url, file_size)
+        z = zipfile.ZipFile(zf)
+        bm_data = z.read("BuildManifest.plist")
+        bm = plistlib.loads(bm_data)
+
+        kernel_map = {}
+        for bid in bm.get("BuildIdentities", []):
+            info = bid.get("Info", {})
+            dc = info.get("DeviceClass", "")
+            if not dc:
+                continue
+
+            manifest = bid.get("Manifest", {})
+            kpath = None
+            for key in ("KernelCache", "RestoreKernelCache"):
+                if key in manifest:
+                    kpath = manifest[key].get("Info", {}).get("Path", "")
+                    if kpath:
+                        break
+
+            if not kpath:
+                continue
+
+            kname = kpath.split("/")[-1]
+            if kname not in kernel_map:
+                kernel_map[kname] = set()
+            kernel_map[kname].add(dc.upper())
+
+        # Convert sets to sorted lists
+        return {k: sorted(v) for k, v in kernel_map.items()}
+    except Exception as e:
+        log(f"    BuildManifest parse error: {e}")
+        return None
+
+
+def match_kernels_via_buildmanifest(kernels, devices, bm_kernel_map):
+    """
+    Match kernelcache files to device identifiers using BuildManifest.plist.
+    
+    Args:
+        kernels: list of (filename, data) tuples
+        devices: list of device identifiers e.g. ['iPad8,11', 'iPad8,12']
+        bm_kernel_map: {kernel_filename: [board_config, ...]} from BuildManifest
+    
+    Returns: dict {device_id: kernel_data}
+    """
+    if not bm_kernel_map:
+        return _fallback_match(kernels, devices)
+
+    # Build reverse map: board_config → kernel_filename
+    board_to_kernel = {}
+    for kname, boards in bm_kernel_map.items():
+        for board in boards:
+            board_to_kernel[board] = kname
+
+    # Build kernel filename → data lookup
+    kernel_data_map = {}
+    for kname, kdata in kernels:
+        short = kname.split("/")[-1]
+        kernel_data_map[short] = kdata
+
+    # Match each device to its kernel
+    result = {}
+    for dev_id in devices:
+        # Find all board configs that map to this device
+        # (one device can have multiple board configs)
+        matched_kname = None
+        for board, kname in board_to_kernel.items():
+            mapped_dev = board_to_device(board)
+            if mapped_dev == dev_id:
+                matched_kname = kname
+                break
+        
+        if matched_kname and matched_kname in kernel_data_map:
+            result[dev_id] = kernel_data_map[matched_kname]
             continue
-        if dev_num == platform_num:
-            matched.append(dev_id)
 
-    return matched if matched else device_identifiers  # Fallback to all
+        # Fallback: try platform-number-only match
+        fallback = _fallback_match_single(dev_id, kernel_data_map)
+        if fallback:
+            result[dev_id] = fallback
+            continue
+
+        # Last resort: first kernel
+        if kernels:
+            result[dev_id] = kernels[0][1]
+
+    return result
+
+
+def _fallback_match(kernels, devices):
+    """Fallback: match by platform number only (old behavior)."""
+    result = {}
+    for dev_id in devices:
+        kdata = _fallback_match_single(dev_id, {k[0].split("/")[-1]: k[1] for k in kernels})
+        if kdata:
+            result[dev_id] = kdata
+        elif kernels:
+            result[dev_id] = kernels[0][1]
+    return result
+
+
+def _fallback_match_single(dev_id, kernel_data_map):
+    """Match a single device to kernel by platform number."""
+    device_type = "iPad" if "iPad" in dev_id else "iPhone"
+    m = re.match(rf"{device_type}(\d+)", dev_id)
+    if not m:
+        return None
+    platform_num = m.group(1)
+    prefix = device_type.lower()
+
+    # Try exact match with letter suffix first
+    for kname in sorted(kernel_data_map.keys()):
+        if kname == f"{prefix}{platform_num}":
+            return kernel_data_map[kname]
+    
+    # Try prefix match (ipad8 matches ipad8, ipad8b, etc.)
+    # Use the first one found
+    for kname in sorted(kernel_data_map.keys()):
+        m2 = re.match(rf"{prefix}(\d+)", kname)
+        if m2 and m2.group(1) == platform_num:
+            return kernel_data_map[kname]
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +570,20 @@ def main():
             log(f"  SKIP (out of version range)")
             continue
 
+        # Step 2a: Parse BuildManifest to get board→kernel mapping
+        file_size = None
+        try:
+            headers = http_head(url)
+            file_size = int(headers.get("Content-Length", 0))
+        except:
+            pass
+        
+        bm_map = None
+        if file_size and file_size > 0:
+            bm_map = parse_buildmanifest_from_ipsw(url, file_size)
+            if bm_map:
+                log(f"  BuildManifest: {len(bm_map)} kernel variants, {sum(len(v) for v in bm_map.values())} boards")
+
         # Extract kernelcaches from IPSW
         kernels = extract_kernelcache_from_ipsw(url)
         if not kernels:
@@ -356,59 +592,25 @@ def main():
             time.sleep(1)
             continue
 
-        # Match kernels to devices
-        if len(kernels) == 1:
-            # Simple case: one kernel for all devices
-            kernel_name, kernel_data = kernels[0]
-            for dev_id in devices:
-                filename = f"{dev_id.replace(',', '.')}.{version}.kernelcache"
-                filepath = out_dir / filename
-                if filepath.exists() and filepath.stat().st_size > 100 * 1024:
-                    skip += 1
-                    continue
-                filepath.write_bytes(kernel_data)
-                sz = len(kernel_data)
-                index.append({"model": dev_id, "version": version, "size": sz})
-                log(f"  SAVED: {filename} ({sz // 1024 // 1024}MB)")
-                success += 1
-        else:
-            # Multiple kernels: match by platform number
-            log(f"  Multiple kernels found: {[k[0].split('/')[-1] for k in kernels]}")
-            assigned_devices = set()
-            for kernel_name, kernel_data in kernels:
-                matched = match_kernel_to_devices(kernel_name, devices)
-                # Remove already assigned devices
-                matched = [d for d in matched if d not in assigned_devices]
-                if not matched:
-                    continue
-                for dev_id in matched:
-                    assigned_devices.add(dev_id)
-                    filename = f"{dev_id.replace(',', '.')}.{version}.kernelcache"
-                    filepath = out_dir / filename
-                    if filepath.exists() and filepath.stat().st_size > 100 * 1024:
-                        skip += 1
-                        continue
-                    filepath.write_bytes(kernel_data)
-                    sz = len(kernel_data)
-                    index.append({"model": dev_id, "version": version, "size": sz})
-                    log(f"  SAVED: {filename} ({sz // 1024 // 1024}MB)")
-                    success += 1
-
-            # Any unassigned devices: use the first kernel as fallback
-            unassigned = [d for d in devices if d not in assigned_devices]
-            if unassigned:
-                log(f"  WARNING: {len(unassigned)} devices unassigned, using first kernel as fallback")
-                for dev_id in unassigned:
-                    filename = f"{dev_id.replace(',', '.')}.{version}.kernelcache"
-                    filepath = out_dir / filename
-                    if filepath.exists() and filepath.stat().st_size > 100 * 1024:
-                        skip += 1
-                        continue
-                    filepath.write_bytes(kernels[0][1])
-                    sz = len(kernels[0][1])
-                    index.append({"model": dev_id, "version": version, "size": sz})
-                    log(f"  SAVED: {filename} ({sz // 1024 // 1024}MB) [fallback]")
-                    success += 1
+        # Match kernels to devices using BuildManifest
+        device_to_kernel = match_kernels_via_buildmanifest(kernels, devices, bm_map)
+        
+        for dev_id in devices:
+            kernel_data = device_to_kernel.get(dev_id)
+            if not kernel_data:
+                fail += 1
+                continue
+            
+            filename = f"{dev_id.replace(',', '.')}.{version}.kernelcache"
+            filepath = out_dir / filename
+            if filepath.exists() and filepath.stat().st_size > 100 * 1024:
+                skip += 1
+                continue
+            filepath.write_bytes(kernel_data)
+            sz = len(kernel_data)
+            index.append({"model": dev_id, "version": version, "size": sz})
+            log(f"  SAVED: {filename} ({sz // 1024 // 1024}MB)")
+            success += 1
 
         time.sleep(0.5)
 

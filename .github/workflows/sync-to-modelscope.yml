@@ -16,8 +16,8 @@ jobs:
           MS_USERNAME: ${{ secrets.MS_USERNAME }}
           MS_PASSWORD: ${{ secrets.MS_PASSWORD }}
         run: |
-          # Clone ModelScope repo
-          git clone "https://${MS_USERNAME}:${MS_PASSWORD}@www.modelscope.cn/datasets/qwer1234561476/jumo.git" ms-repo
+          # Clone ModelScope repo (skip LFS, we only add new files)
+          GIT_LFS_SKIP_SMUDGE=1 git clone "https://${MS_USERNAME}:${MS_PASSWORD}@www.modelscope.cn/datasets/qwer1234561476/jumo.git" ms-repo
           mkdir -p ms-repo/neihewenjian
           
           # Download iPhone kernels from our release
@@ -30,6 +30,7 @@ jobs:
           
           # Push to ModelScope
           cd ms-repo
+          export GIT_LFS_SKIP_PUSH=1
           FILE_COUNT=$(find neihewenjian -name "*.kernelcache" | wc -l)
           echo "Total files: $FILE_COUNT"
           

@@ -30,17 +30,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Delete all releases
+      - name: Delete target releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          echo "Cleaning up all releases..."
-          gh release list -L 9999 --json tagName | jq -r '.[].tagName' | while read tag; do
-            echo "  Deleting $tag..."
-            gh release delete "$tag" --yes --cleanup-tag
-          done
-          echo "All old releases deleted!"
+          echo "Cleaning up releases..."
+          if [[ "${{ github.event.inputs.filter }}" == "ipad" ]]; then
+            echo "Deleting ipad-kernelcache..."
+            gh release delete ipad-kernelcache --yes --cleanup-tag 2>/dev/null || true
+          fi
+          if [[ "${{ github.event.inputs.filter }}" == "iphone" ]]; then
+            echo "Deleting iphone-kernelcache..."
+            gh release delete iphone-kernelcache --yes --cleanup-tag 2>/dev/null || true
+          fi
+          if [[ "${{ github.event.inputs.filter }}" == "all" ]]; then
+            gh release list -L 9999 --json tagName | jq -r '.[].tagName' | while read tag; do
+              echo "  Deleting $tag..."
+              gh release delete "$tag" --yes --cleanup-tag
+            done
+          fi
+          echo "Cleanup done!"
 
   download-ipad:
     needs: cleanup

@@ -1,88 +1,111 @@
-name: Rebuild Kernelcaches
+name: Download Kernelcaches
 
 on:
   workflow_dispatch:
     inputs:
       filter:
-        description: 'Device filter (ipad or iphone)'
+        description: 'Download target'
         required: true
         default: 'ipad'
         type: choice
         options:
           - ipad
           - iphone
-      min_version:
-        description: 'Min iOS/iPadOS version (e.g. 15.7)'
-        required: true
-        default: '15.7'
-      max_version:
-        description: 'Max iOS/iPadOS version (e.g. 16.6.1)'
-        required: true
-        default: '16.6.1'
+          - all
 
 jobs:
-  rebuild:
+  cleanup:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Run extraction script
-        run: |
-          echo "Filter: ${{ github.event.inputs.filter }}"
-          echo "Version range: ${{ github.event.inputs.min_version }} - ${{ github.event.inputs.max_version }}"
-          python3 scripts/rebuild_kernelcaches.py \
-            --filter ${{ github.event.inputs.filter }} \
-            --min-version "${{ github.event.inputs.min_version }}" \
-            --max-version "${{ github.event.inputs.max_version }}"
-
-      - name: Prepare release tag
-        id: tag
-        run: |
-          TAG="${{ github.event.inputs.filter }}-kernelcache"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Release tag: $TAG"
-
-      - name: Delete old release
+      - name: Delete old releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          if gh release view "$TAG" &>/dev/null; then
-            echo "Deleting old release: $TAG"
-            gh release delete "$TAG" --yes --cleanup-tag
-          else
-            echo "No existing release to delete"
-          fi
+          echo "Cleaning up old releases..."
+          gh release list -L 9999 --json tagName | jq -r '.[].tagName' | while read tag; do
+            echo "  Deleting $tag..."
+            gh release delete "$tag" --yes --cleanup-tag
+          done
+          echo "All old releases deleted!"
+
+  download-ipad:
+    needs: cleanup
+    if: ${{ github.event.inputs.filter == 'ipad' || github.event.inputs.filter == 'all' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download iPad kernelcaches from Kami
+        run: python3 scripts/mirror_kernelcaches.py --filter ipad
 
       - name: Upload to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TITLE: "${{ github.event.inputs.filter == 'ipad' && 'iPad' || 'iPhone' }} Kernelcaches"
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          FILE_COUNT=$(find output -name "*.kernelcache" -type f | wc -l)
-          echo "Uploading $FILE_COUNT kernelcache files..."
+          DIR="output/ipad-kernelcache"
+          FILE_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
+          echo "Uploading $FILE_COUNT iPad kernelcache files..."
 
-          gh release create "$TAG" \
-            --title "$TITLE" \
-            --notes "Auto-rebuilt from Apple IPSW (appledb). Version range: ${{ github.event.inputs.min_version }}-${{ github.event.inputs.max_version }}. Total: $FILE_COUNT files."
+          gh release create "ipad-kernelcache" \
+            --title "iPad Kernelcaches" \
+            --notes "iPad kernelcache files (iPadOS 15.7.2-16.6.1). Total: $FILE_COUNT files."
 
-          cd output
+          cd "$DIR"
           find . -name "*.kernelcache" -type f | sort | while read f; do
             FILENAME=$(basename "$f")
             SIZE=$(du -h "$f" | cut -f1)
             echo "  Uploading $FILENAME ($SIZE)..."
-            gh release upload "$TAG" "$f" --clobber
+            gh release upload "ipad-kernelcache" "$f" --clobber
           done
 
           if [ -f index.json ]; then
-            INDEX_NAME="index_${{ github.event.inputs.filter }}.json"
-            cp index.json "$INDEX_NAME"
-            echo "  Uploading $INDEX_NAME..."
-            gh release upload "$TAG" "$INDEX_NAME" --clobber
+            cp index.json index_ipad.json
+            echo "  Uploading index_ipad.json..."
+            gh release upload "ipad-kernelcache" index_ipad.json --clobber
           fi
 
-          echo "Upload complete!"
+          echo "iPad upload complete!"
+
+  download-iphone:
+    needs: cleanup
+    if: ${{ github.event.inputs.filter == 'iphone' || github.event.inputs.filter == 'all' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download iPhone kernelcaches from Kami
+        run: python3 scripts/mirror_kernelcaches.py --filter iphone
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DIR="output/iphone-kernelcache"
+          FILE_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
+          echo "Uploading $FILE_COUNT iPhone kernelcache files..."
+
+          gh release create "iphone-kernelcache" \
+            --title "iPhone Kernelcaches" \
+            --notes "iPhone kernelcache files (iOS 15.7.2-16.6.1). Total: $FILE_COUNT files."
+
+          cd "$DIR"
+          find . -name "*.kernelcache" -type f | sort | while read f; do
+            FILENAME=$(basename "$f")
+            SIZE=$(du -h "$f" | cut -f1)
+            echo "  Uploading $FILENAME ($SIZE)..."
+            gh release upload "iphone-kernelcache" "$f" --clobber
+          done
+
+          if [ -f index.json ]; then
+            cp index.json index_iphone.json
+            echo "  Uploading index_iphone.json..."
+            gh release upload "iphone-kernelcache" index_iphone.json --clobber
+          fi
+
+          echo "iPhone upload complete!"

@@ -13,11 +13,10 @@ jobs:
       - name: Sync kernel files to ModelScope
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MS_USERNAME: ${{ secrets.MS_USERNAME }}
-          MS_PASSWORD: ${{ secrets.MS_PASSWORD }}
+          MS_TOKEN: ${{ secrets.MS_PASSWORD }}
         run: |
           # Clone ModelScope repo (skip LFS download)
-          GIT_LFS_SKIP_SMUDGE=1 git clone "https://${MS_USERNAME}:${MS_PASSWORD}@www.modelscope.cn/datasets/qwer1234561476/jumo.git" ms-repo
+          GIT_LFS_SKIP_SMUDGE=1 git clone "https://oauth2:${MS_TOKEN}@www.modelscope.cn/datasets/qwer1234561476/jumo.git" ms-repo
           mkdir -p ms-repo/neihewenjian
           
           # Download iPhone + iPad kernels from our release

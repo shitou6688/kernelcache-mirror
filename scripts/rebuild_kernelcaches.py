@@ -272,6 +272,9 @@ def main():
     if MIN_VERSION or MAX_VERSION:
         ios_entries = [e for e in ios_entries if version_in_range(e.get("version", ""), MIN_VERSION, MAX_VERSION)]
 
+    # Skip beta/RC versions (keep only release versions)
+    ios_entries = [e for e in ios_entries if "beta" not in e.get("version", "").lower() and "beta" not in e.get("build", "").lower() and "RC" not in e.get("build", "")]
+
     # Deduplicate by URL (same IPSW shouldn't be processed twice)
     seen = set()
     firmwares = []

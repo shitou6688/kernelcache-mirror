@@ -1,0 +1,42 @@
+name: Sync to ModelScope
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync kernel files to ModelScope
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MS_USERNAME: ${{ secrets.MS_USERNAME }}
+          MS_PASSWORD: ${{ secrets.MS_PASSWORD }}
+        run: |
+          # Clone ModelScope repo
+          git clone "https://${MS_USERNAME}:${MS_PASSWORD}@www.modelscope.cn/datasets/qwer1234561476/jumo.git" ms-repo
+          mkdir -p ms-repo/neihewenjian
+          
+          # Download iPhone kernels from our release
+          echo "Downloading iPhone kernels..."
+          gh release download iphone-kernelcache -R shitou6688/kernelcache-mirror -D ms-repo/neihewenjian --pattern "*.kernelcache" --clobber
+          
+          # Download iPad kernels  
+          echo "Downloading iPad kernels..."
+          gh release download ipad-kernelcache -R shitou6688/kernelcache-mirror -D ms-repo/neihewenjian --pattern "*.kernelcache" --clobber
+          
+          # Push to ModelScope
+          cd ms-repo
+          FILE_COUNT=$(find neihewenjian -name "*.kernelcache" | wc -l)
+          echo "Total files: $FILE_COUNT"
+          
+          git config user.name "shitou6688"
+          git config user.email "shitou6688@users.noreply.github.com"
+          git add neihewenjian/
+          git commit -m "Sync kernel files ($FILE_COUNT files)" || echo "No changes"
+          git push
+          
+          echo "Done! $FILE_COUNT files synced to ModelScope"

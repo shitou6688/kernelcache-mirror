@@ -129,17 +129,16 @@ class ZipRangeFile:
 
 def extract_kernelcache_from_ipsw(url):
     """Extract all kernelcache entries from an IPSW ZIP.
-    Returns list of (filename, data) tuples."""
+    Returns (list of (filename, data) tuples, file_size or None)."""
     try:
         headers = http_head(url)
         file_size = int(headers.get("Content-Length", 0))
         if file_size == 0:
             log(f"    HEAD failed, trying GET for file size...")
-            # Some CDNs don't support HEAD, skip size check
-            return []
+            return [], None
     except Exception as e:
         log(f"    HEAD error: {e}")
-        return []
+        return [], None
 
     log(f"    IPSW size: {file_size // 1024 // 1024}MB")
 
@@ -157,10 +156,10 @@ def extract_kernelcache_from_ipsw(url):
                 results.append((info.filename, data))
             else:
                 log(f"    Skipping (too small: {len(data)} bytes)")
-        return results
+        return results, file_size
     except Exception as e:
         log(f"    ZIP extraction error: {e}")
-        return []
+        return [], file_size
 
 
 # ---------------------------------------------------------------------------
@@ -570,27 +569,34 @@ def main():
             log(f"  SKIP (out of version range)")
             continue
 
-        # Step 2a: Parse BuildManifest to get board→kernel mapping
+        # Get file size (needed for both extraction and BuildManifest)
         file_size = None
         try:
-            headers = http_head(url)
-            file_size = int(headers.get("Content-Length", 0))
+            hdrs = http_head(url)
+            file_size = int(hdrs.get("Content-Length", 0))
         except:
             pass
         
-        bm_map = None
-        if file_size and file_size > 0:
-            bm_map = parse_buildmanifest_from_ipsw(url, file_size)
-            if bm_map:
-                log(f"  BuildManifest: {len(bm_map)} kernel variants, {sum(len(v) for v in bm_map.values())} boards")
-
         # Extract kernelcaches from IPSW
-        kernels = extract_kernelcache_from_ipsw(url)
+        kernels, actual_file_size = extract_kernelcache_from_ipsw(url)
         if not kernels:
             log(f"  FAIL: no kernelcache found")
             fail += 1
             time.sleep(1)
             continue
+        
+        # Use actual file_size from extraction if HEAD failed
+        if (not file_size or file_size == 0) and actual_file_size:
+            file_size = actual_file_size
+
+        # Parse BuildManifest to get board→kernel mapping
+        bm_map = None
+        if file_size and file_size > 0:
+            bm_map = parse_buildmanifest_from_ipsw(url, file_size)
+            if bm_map:
+                log(f"  BuildManifest: {len(bm_map)} kernel variants, {sum(len(v) for v in bm_map.values())} boards")
+            else:
+                log(f"  BuildManifest: parse failed, using fallback matching")
 
         # Match kernels to devices using BuildManifest
         device_to_kernel = match_kernels_via_buildmanifest(kernels, devices, bm_map)

@@ -13,6 +13,14 @@ on:
           - ipad
           - iphone
           - all
+      min_version:
+        description: 'Min version (e.g. 15.7)'
+        required: true
+        default: '15.7'
+      max_version:
+        description: 'Max version (e.g. 16.6.1)'
+        required: true
+        default: '16.6.1'
 
 jobs:
   cleanup:
@@ -37,23 +45,30 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download iPad kernelcaches from Kami
-        run: python3 scripts/mirror_kernelcaches.py --filter ipad
+      - name: Run extraction script
+        run: |
+          echo "Extracting iPad kernelcaches from Apple IPSW..."
+          echo "Version range: ${{ github.event.inputs.min_version }} - ${{ github.event.inputs.max_version }}"
+          python3 scripts/rebuild_kernelcaches.py \
+            --filter ipad \
+            --min-version "${{ github.event.inputs.min_version }}" \
+            --max-version "${{ github.event.inputs.max_version }}"
 
       - name: Upload to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DIR="output/ipad-kernelcache"
+          DIR="output"
           FILE_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
           echo "Uploading $FILE_COUNT iPad kernelcache files..."
 
           gh release create "ipad-kernelcache" \
             --title "iPad Kernelcaches" \
-            --notes "iPad kernelcache files (iPadOS 15.7.2-16.6.1). Total: $FILE_COUNT files."
+            --notes "iPad kernelcache files (iPadOS ${{ github.event.inputs.min_version }}-${{ github.event.inputs.max_version }}). Extracted from Apple IPSW via appledb. Total: $FILE_COUNT files."
 
           cd "$DIR"
           find . -name "*.kernelcache" -type f | sort | while read f; do
@@ -70,43 +85,3 @@ jobs:
           fi
 
           echo "iPad upload complete!"
-
-  download-iphone:
-    needs: cleanup
-    if: ${{ github.event.inputs.filter == 'iphone' || github.event.inputs.filter == 'all' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download iPhone kernelcaches from Kami
-        run: python3 scripts/mirror_kernelcaches.py --filter iphone
-
-      - name: Upload to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          DIR="output/iphone-kernelcache"
-          FILE_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
-          echo "Uploading $FILE_COUNT iPhone kernelcache files..."
-
-          gh release create "iphone-kernelcache" \
-            --title "iPhone Kernelcaches" \
-            --notes "iPhone kernelcache files (iOS 15.7.2-16.6.1). Total: $FILE_COUNT files."
-
-          cd "$DIR"
-          find . -name "*.kernelcache" -type f | sort | while read f; do
-            FILENAME=$(basename "$f")
-            SIZE=$(du -h "$f" | cut -f1)
-            echo "  Uploading $FILENAME ($SIZE)..."
-            gh release upload "iphone-kernelcache" "$f" --clobber
-          done
-
-          if [ -f index.json ]; then
-            cp index.json index_iphone.json
-            echo "  Uploading index_iphone.json..."
-            gh release upload "iphone-kernelcache" index_iphone.json --clobber
-          fi
-
-          echo "iPhone upload complete!"

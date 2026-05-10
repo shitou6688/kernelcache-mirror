@@ -81,7 +81,7 @@ def process_release(index_url, release_tag, filter_type):
         version = entry["version"]
         size = entry["size"]
 
-        filename = f"{model.replace(',', '.')}.{version}.kernelcache"
+        filename = f"{model.replace(',', '.')}_{version}.kernelcache"
         filepath = out_dir / filename
 
         if filepath.exists() and filepath.stat().st_size > 100 * 1024:

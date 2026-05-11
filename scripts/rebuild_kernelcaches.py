@@ -211,10 +211,6 @@ BOARD_TO_DEVICE = {
     "J420AP": "iPad8,11", "J420": "iPad8,11",
     "J421AP": "iPad8,12", "J421": "iPad8,12",
     # iPad11,x
-    "J317X": "iPad11,1",  # need verify
-    "J318X": "iPad11,2",
-    "J320X": "iPad11,3",
-    "J321X": "iPad11,4",
     "J322AP": "iPad11,6", "J322": "iPad11,6",
     "J323AP": "iPad11,7", "J323": "iPad11,7",
     # iPad12,x

@@ -34,16 +34,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Replace rebuild script with fixed version
+      - name: Run extraction (v3 - correct boardconfig matching)
         run: |
-          cp scripts/rebuild_kernelcaches_fixed.py scripts/rebuild_kernelcaches.py
-          echo "Using fixed rebuild_kernelcaches.py (BuildManifest DeviceClass-based matching)"
-
-      - name: Run extraction script
-        run: |
-          echo "Extracting ${{ github.event.inputs.filter }} kernelcaches..."
-          echo "Version range: ${{ github.event.inputs.min_version }} - ${{ github.event.inputs.max_version }}"
-          python3 scripts/rebuild_kernelcaches.py \
+          echo "Using v3: correct model->boardconfig from ipsw.me + BuildManifest"
+          echo "Filter: ${{ github.event.inputs.filter }}"
+          echo "Versions: ${{ github.event.inputs.min_version }} - ${{ github.event.inputs.max_version }}"
+          python3 scripts/rebuild_kernelcaches_v3.py \
             --filter "${{ github.event.inputs.filter }}" \
             --min-version "${{ github.event.inputs.min_version }}" \
             --max-version "${{ github.event.inputs.max_version }}"
@@ -56,7 +52,6 @@ jobs:
           DIR="output"
           TAG="${FILTER}-kernelcache"
 
-          # Count files to upload
           NEW_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
           echo "Files extracted: $NEW_COUNT"
 
@@ -65,19 +60,16 @@ jobs:
             exit 1
           fi
 
-          # Get current release status (DO NOT delete)
-          CURRENT_COUNT=0
           if gh release view "$TAG" &>/dev/null; then
             CURRENT_COUNT=$(gh release view "$TAG" --json assets -q '.assets | length' 2>/dev/null || echo 0)
-            echo "Current release exists with $CURRENT_COUNT assets"
+            echo "Current release: $CURRENT_COUNT assets"
           else
-            echo "Release does not exist, will create"
+            echo "Creating release: $TAG"
             gh release create "$TAG" \
               --title "${FILTER^} Kernelcaches" \
               --notes "Kernelcache files for TrollInstallerX. Version range: ${{ github.event.inputs.min_version }}-${{ github.event.inputs.max_version }}"
           fi
 
-          # Upload with --clobber (overwrites existing files with same name, adds new ones)
           echo "Uploading $NEW_COUNT files (clobber mode)..."
           cd "$DIR"
           find . -name "*.kernelcache" -type f | sort | while read f; do
@@ -85,17 +77,12 @@ jobs:
             gh release upload "$TAG" "$f" --clobber
           done
 
-          # Upload index
           if [ -f "index.json" ]; then
             cp index.json "index_${FILTER}.json"
             echo "  index_${FILTER}.json"
             gh release upload "$TAG" "index_${FILTER}.json" --clobber
           fi
 
-          # Final count
           FINAL_COUNT=$(gh release view "$TAG" --json assets -q '.assets | length' 2>/dev/null || echo 0)
           echo ""
-          echo "Done! Release: $TAG"
-          echo "  Before: $CURRENT_COUNT assets"
-          echo "  Uploaded: $NEW_COUNT files"
-          echo "  After: $FINAL_COUNT assets"
+          echo "Done! $TAG: $FINAL_COUNT total assets"

@@ -1,4 +1,4 @@
-name: Sync to ModelScope
+name: Sync to ModelScope (No LFS)
 
 on:
   workflow_dispatch:
@@ -15,25 +15,47 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MS_TOKEN: ${{ secrets.MS_PASSWORD }}
         run: |
-          # Clone ModelScope repo (skip LFS download)
-          GIT_LFS_SKIP_SMUDGE=1 git clone "https://oauth2:${MS_TOKEN}@www.modelscope.cn/datasets/qwer1234561476/jumo.git" ms-repo
-          mkdir -p ms-repo/neihewenjian
+          set -e
           
-          # Download iPhone + iPad kernels from our release
-          echo "Downloading kernels from releases..."
+          # Clone ModelScope repo
+          echo "Cloning ModelScope repo..."
+          GIT_LFS_SKIP_SMUDGE=1 git clone "https://oauth2:${MS_TOKEN}@www.modelscope.cn/datasets/qwer1234561476/jumo.git" ms-repo
+          cd ms-repo
+          
+          # KILL LFS completely
+          echo "Removing LFS..."
+          rm -f .gitattributes
+          git lfs uninstall --local 2>/dev/null || true
+          
+          # Create target dir
+          mkdir -p neihewenjian
+          
+          # Download all kernels from our release
+          cd ..
+          echo "Downloading kernels..."
           gh release download iphone-kernelcache -R shitou6688/kernelcache-mirror -D ms-repo/neihewenjian --pattern "*.kernelcache" --clobber
           gh release download ipad-kernelcache -R shitou6688/kernelcache-mirror -D ms-repo/neihewenjian --pattern "*.kernelcache" --clobber
           
-          # Push to ModelScope
           cd ms-repo
-          export GIT_LFS_SKIP_PUSH=1
           FILE_COUNT=$(find neihewenjian -name "*.kernelcache" | wc -l)
           echo "Total files: $FILE_COUNT"
           
+          # Commit and push
           git config user.name "shitou6688"
           git config user.email "shitou6688@users.noreply.github.com"
           git add neihewenjian/
-          git commit -m "Sync kernel files ($FILE_COUNT files)" || echo "No changes"
-          git push
+          git commit -m "Kernel files ($FILE_COUNT files)" || echo "No changes to commit"
           
-          echo "Done! $FILE_COUNT files synced to ModelScope"
+          # Push with retry
+          for i in 1 2 3; do
+            echo "Push attempt $i..."
+            if git push 2>&1; then
+              echo "Push OK!"
+              break
+            else
+              echo "Push failed, retry in 10s..."
+              sleep 10
+            fi
+          done
+          
+          echo "Done! $FILE_COUNT files synced"

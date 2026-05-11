@@ -227,10 +227,11 @@ def parse_buildmanifest(bm_data):
             board_upper = dc.upper()
             kc_basename = kpath.split("/")[-1]
             board_to_kc[board_upper] = kc_basename
-            # Also store without AP suffix for matching flexibility
-            board_no_ap = board_upper.replace("AP", "").replace("XAP", "XAP")  # careful
-            if board_no_ap != board_upper:
-                board_to_kc[board_no_ap] = kc_basename
+            # Also store without AP/XAP suffix for matching flexibility
+            if board_upper.endswith("XAP"):
+                board_to_kc[board_upper[:-3]] = kc_basename  # J317XAP -> J317
+            elif board_upper.endswith("AP"):
+                board_to_kc[board_upper[:-2]] = kc_basename  # J417AP -> J417
 
     return board_to_kc
 

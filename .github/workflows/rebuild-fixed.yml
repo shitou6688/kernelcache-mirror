@@ -1,0 +1,102 @@
+name: Rebuild Kernelcaches (Fixed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: 'Device type to rebuild'
+        required: true
+        default: 'ipad'
+        type: choice
+        options:
+          - ipad
+          - iphone
+      min_version:
+        description: 'Min version (e.g. 14.0)'
+        required: true
+        default: '14.0'
+      max_version:
+        description: 'Max version (e.g. 16.6.1)'
+        required: true
+        default: '16.6.1'
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 720
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Copy fixed rebuild script
+        run: |
+          cp scripts/rebuild_kernelcaches.py scripts/rebuild_kernelcaches.py.bak
+          cp scripts/rebuild_kernelcaches_fixed.py scripts/rebuild_kernelcaches.py
+
+      - name: Delete old release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.filter }}-kernelcache"
+          echo "Deleting release: $TAG"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          echo "Old release deleted."
+
+      - name: Run extraction script
+        run: |
+          echo "Extracting ${{ github.event.inputs.filter }} kernelcaches..."
+          echo "Version range: ${{ github.event.inputs.min_version }} - ${{ github.event.inputs.max_version }}"
+          python3 scripts/rebuild_kernelcaches.py \
+            --filter "${{ github.event.inputs.filter }}" \
+            --min-version "${{ github.event.inputs.min_version }}" \
+            --max-version "${{ github.event.inputs.max_version }}"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILTER="${{ github.event.inputs.filter }}"
+          DIR="output"
+          TAG="${FILTER}-kernelcache"
+
+          FILE_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
+          echo "Uploading $FILE_COUNT ${FILTER} kernelcache files..."
+
+          # Create release
+          gh release create "$TAG" \
+            --title "${FILTER^} Kernelcaches (Rebuilt)" \
+            --notes "Correctly rebuilt kernelcache files for TrollInstallerX. Each model gets its correct kernelcache from BuildManifest DeviceClass mapping. Version range: ${{ github.event.inputs.min_version }}-${{ github.event.inputs.max_version }}. Total: $FILE_COUNT files."
+
+          # Upload kernelcache files (batches to avoid timeout)
+          cd "$DIR"
+          find . -name "*.kernelcache" -type f | sort | while read f; do
+            echo "  Uploading $(basename "$f")..."
+            gh release upload "$TAG" "$f" --clobber
+          done
+
+          # Upload index
+          INDEX_NAME="index_${FILTER}.json"
+          if [ -f "index.json" ]; then
+            cp index.json "$INDEX_NAME"
+            echo "  Uploading $INDEX_NAME..."
+            gh release upload "$TAG" "$INDEX_NAME" --clobber
+          fi
+
+          echo "Done! Total: $FILE_COUNT kernelcaches uploaded."
+
+      - name: Summary
+        run: |
+          FILTER="${{ github.event.inputs.filter }}"
+          DIR="output"
+          FILE_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
+          echo "## Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Type**: ${{ github.event.inputs.filter }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Versions**: ${{ github.event.inputs.min_version }} - ${{ github.event.inputs.max_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Files uploaded**: $FILE_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date**: $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY

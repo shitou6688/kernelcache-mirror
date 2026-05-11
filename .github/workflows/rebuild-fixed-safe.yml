@@ -1,0 +1,101 @@
+name: Rebuild Kernelcaches (Fixed - Safe)
+
+on:
+  workflow_dispatch:
+    inputs:
+      filter:
+        description: 'Device type to rebuild'
+        required: true
+        default: 'ipad'
+        type: choice
+        options:
+          - ipad
+          - iphone
+      min_version:
+        description: 'Min version (e.g. 15.7)'
+        required: true
+        default: '15.7'
+      max_version:
+        description: 'Max version (e.g. 16.6.1)'
+        required: true
+        default: '16.6.1'
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 720
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Replace rebuild script with fixed version
+        run: |
+          cp scripts/rebuild_kernelcaches_fixed.py scripts/rebuild_kernelcaches.py
+          echo "Using fixed rebuild_kernelcaches.py (BuildManifest DeviceClass-based matching)"
+
+      - name: Run extraction script
+        run: |
+          echo "Extracting ${{ github.event.inputs.filter }} kernelcaches..."
+          echo "Version range: ${{ github.event.inputs.min_version }} - ${{ github.event.inputs.max_version }}"
+          python3 scripts/rebuild_kernelcaches.py \
+            --filter "${{ github.event.inputs.filter }}" \
+            --min-version "${{ github.event.inputs.min_version }}" \
+            --max-version "${{ github.event.inputs.max_version }}"
+
+      - name: Upload to release (--clobber, NO delete)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILTER="${{ github.event.inputs.filter }}"
+          DIR="output"
+          TAG="${FILTER}-kernelcache"
+
+          # Count files to upload
+          NEW_COUNT=$(find "$DIR" -name "*.kernelcache" -type f | wc -l)
+          echo "Files extracted: $NEW_COUNT"
+
+          if [ "$NEW_COUNT" -eq 0 ]; then
+            echo "ERROR: No kernelcache files extracted!"
+            exit 1
+          fi
+
+          # Get current release status (DO NOT delete)
+          CURRENT_COUNT=0
+          if gh release view "$TAG" &>/dev/null; then
+            CURRENT_COUNT=$(gh release view "$TAG" --json assets -q '.assets | length' 2>/dev/null || echo 0)
+            echo "Current release exists with $CURRENT_COUNT assets"
+          else
+            echo "Release does not exist, will create"
+            gh release create "$TAG" \
+              --title "${FILTER^} Kernelcaches" \
+              --notes "Kernelcache files for TrollInstallerX. Version range: ${{ github.event.inputs.min_version }}-${{ github.event.inputs.max_version }}"
+          fi
+
+          # Upload with --clobber (overwrites existing files with same name, adds new ones)
+          echo "Uploading $NEW_COUNT files (clobber mode)..."
+          cd "$DIR"
+          find . -name "*.kernelcache" -type f | sort | while read f; do
+            echo "  $(basename "$f")"
+            gh release upload "$TAG" "$f" --clobber
+          done
+
+          # Upload index
+          if [ -f "index.json" ]; then
+            cp index.json "index_${FILTER}.json"
+            echo "  index_${FILTER}.json"
+            gh release upload "$TAG" "index_${FILTER}.json" --clobber
+          fi
+
+          # Final count
+          FINAL_COUNT=$(gh release view "$TAG" --json assets -q '.assets | length' 2>/dev/null || echo 0)
+          echo ""
+          echo "Done! Release: $TAG"
+          echo "  Before: $CURRENT_COUNT assets"
+          echo "  Uploaded: $NEW_COUNT files"
+          echo "  After: $FINAL_COUNT assets"
